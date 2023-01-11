@@ -1,0 +1,77 @@
+create or replace table film(film_id int,
+                             title varchar,
+                             description varchar,
+                             release_year int,
+                             language_id int,
+                             original_language_id int,
+                             rental_duration int,
+                             rental_rate float,
+                             length int,
+                             replacement_cost float,
+                             rating varchar,
+                             special_features varchar,
+                             last_update varchar
+                            );
+                            
+create or replace stream film_stream on table raw_table;
+
+
+create or replace task film_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('film_stream')
+as
+merge into film tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:film_id::int as film_id,
+                                  load_data:title::varchar as title,
+                                  load_data:description::varchar as description,
+                                  load_data:release_year::int as release_year,
+                                  load_data:language_id::int as language_id,
+                                  load_data:original_language_id::int as original_language_id,
+                                  load_data:rental_duration::int as rental_duration,
+                                  load_data:rental_rate::float as rental_rate,
+                                  load_data:length::int as length,
+                                  load_data:replacement_cost::float as replacement_cost,
+                                  load_data:rating::varchar as rating,
+                                  load_data:special_features::varchar as special_features,
+                                  load_data:last_update::varchar as last_update
+                                  from film_stream where file_name like '%Film_%') src 
+                                  on src.film_id=tgt.film_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.title=src.title,
+                                  tgt.description=src.description,
+                                  tgt.release_year=src.release_year,
+                                  tgt.language_id=src.language_id,
+                                  tgt.original_language_id=src.original_language_id,
+                                  tgt.rental_duration=src.rental_duration,
+                                  tgt.rental_rate=src.rental_rate,
+                                  tgt.length=src.length,
+                                  tgt.replacement_cost=src.replacement_cost,
+                                  tgt.rating=src.rating,
+                                  tgt.special_features=src.special_features,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+(tgt.film_id,tgt.title,tgt.description,tgt.release_year,tgt.language_id,tgt.original_language_id,tgt.rental_duration,tgt.rental_rate,tgt.length,tgt.replacement_cost,tgt.rating,tgt.special_features,tgt.last_update)
+   values
+(src.film_id,src.title,src.description,src.release_year,src.language_id,src.original_language_id,src.rental_duration,src.rental_rate,src.length,src.replacement_cost,src.rating,src.special_features,src.last_update);
+
+
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task film_task;
+alter task film_task resume;
+alter task film_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from film;
+
+select * from film_stream;

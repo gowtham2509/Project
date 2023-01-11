@@ -1,0 +1,65 @@
+create or replace table customer(customer_id int,
+                                 store_id int,
+                                 first_name varchar,
+                                 last_name varchar,
+                                 email varchar,
+                                 address_id int,
+                                 active int,
+                                 create_date varchar,
+                                 last_update varchar
+                                );
+                                
+create or replace stream customer_stream on table raw_table;
+
+
+create or replace task customer_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('customer_stream')
+as
+merge into customer tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:customer_id::int as customer_id,
+                                  load_data:store_id::int as store_id,
+                                  load_data:first_name::varchar as first_name,
+                                  load_data:last_name::varchar as last_name,
+                                  load_data:email::varchar as email,
+                                  load_data:address_id::int as address_id,
+                                  load_data:active::varchar as active,
+                                  load_data:create_date::varchar as create_date,
+                                  load_data:last_update::varchar as last_update
+                                  from customer_stream where file_name like '%Customer_%') src  
+                                  on src.customer_id=tgt.customer_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.store_id=src.store_id,
+                                  tgt.first_name=src.first_name,
+                                  tgt.last_name=src.last_name,
+                                  tgt.email=src.email,
+                                  tgt.address_id=src.address_id,
+                                  tgt.active=src.active,
+                                  tgt.create_date=src.create_date,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+   (tgt.customer_id,tgt.store_id,tgt.first_name,tgt.last_name,tgt.email,tgt.address_id,tgt.active,tgt.create_date,tgt.last_update)
+   values
+   (src.customer_id,src.store_id,src.first_name,src.last_name,src.email,src.address_id,src.active,src.create_date,src.last_update);
+   
+   
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task customer_task;
+alter task customer_task resume;
+alter task customer_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from customer;
+
+select * from customer_stream;

@@ -1,0 +1,59 @@
+create or replace table payment(payment_id int,
+                                customer_id int,
+                                staff_id int,
+                                rental_id int,
+                                amount float,
+                                payment_date varchar,
+                                last_update varchar
+                               );
+                               
+create or replace stream payment_stream on table raw_table;
+
+
+create or replace task payment_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('payment_stream')
+as
+merge into payment tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:payment_id::int as payment_id,
+                                  load_data:customer_id::int as customer_id,
+                                  load_data:staff_id::int as staff_id,
+                                  load_data:rental_id::int as rental_id,
+                                  load_data:amount::float as amount,
+                                  load_data:payment_date::varchar as payment_date,
+                                  load_data:last_update::varchar as last_update
+                                  from payment_stream where file_name like '%Payment_%') src  
+                                  on src.customer_id=tgt.customer_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.customer_id=src.customer_id,
+                                  tgt.staff_id=src.staff_id,
+                                  tgt.rental_id=src.rental_id,
+                                  tgt.amount=src.amount,
+                                  tgt.payment_date=src.payment_date,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+   (tgt.payment_id,tgt.customer_id,tgt.staff_id,tgt.rental_id,tgt.amount,tgt.payment_date,tgt.last_update)
+   values
+   (src.payment_id,src.customer_id,src.staff_id,src.rental_id,src.amount,src.payment_date,src.last_update);
+   
+   
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task payment_task;
+alter task payment_task resume;
+alter task payment_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from payment;
+
+select * from payment_stream;

@@ -1,0 +1,5 @@
+create or replace table raw_table(load_data variant,
+                                    file_name varchar,
+                                    file_row_seq_num int,
+                                    ldts varchar
+                                    );

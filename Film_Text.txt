@@ -1,0 +1,47 @@
+create or replace table film_text(film_id int,
+                                  title varchar,
+                                  description varchar
+                                 );
+                                 
+create or replace stream film_text_stream on table raw_table;
+
+
+create or replace task film_text_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('film_text_stream')
+as
+merge into film_text tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:film_id::int as film_id,
+                                  load_data:title::varchar as title,
+                                  load_data:description::varchar as description
+                                  from film_text_stream where file_name like '%Film_text_%') src on
+                                  src.film_id=tgt.film_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.title=src.title,
+                                  tgt.description=src.description
+                                  when not matched  
+                                  then insert
+           (tgt.film_id,tgt.title,tgt.description)
+           values
+           (src.film_id,src.title,src.description);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task film_text_task;
+alter task film_text_task resume;
+alter task film_text_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from film_text;
+
+select * from film_text_stream;

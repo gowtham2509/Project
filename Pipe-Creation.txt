@@ -1,0 +1,12 @@
+create or replace pipe project_pipe
+auto_ingest=true
+as
+copy into raw_table
+from (select t.$1,
+      metadata$filename as file_name,
+      metadata$file_row_number as file_row_seq_num,
+      current_timestamp as ldts 
+      from @project_stage t
+     );
+     
+ DESC PIPE PROJECT_PIPE;

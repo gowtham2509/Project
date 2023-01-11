@@ -1,0 +1,47 @@
+create or replace table category(category_id int,
+                                 name varchar,
+                                 last_update varchar
+                                );
+                                
+create or replace stream category_stream on table raw_table;
+
+
+
+create or replace task category_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('category_stream')
+as
+merge into category tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:category_id::int as category_id,
+                                  load_data:name::varchar as name,
+                                  load_data:last_update::varchar as last_update
+                                  from category_stream where file_name like '%Category_%') src 
+                                  on src.category_id=tgt.category_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.name=src.name,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.category_id,tgt.name,tgt.last_update)
+           values
+           (src.category_id,src.name,src.last_update);
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task category_task;
+alter task category_task resume;
+alter task category_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from category;
+
+select * from category_stream;

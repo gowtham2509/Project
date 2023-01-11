@@ -1,0 +1,59 @@
+create or replace table rental(rental_id int,
+                               rental_date varchar,
+                               inventory_id int,
+                               customer_id int,
+                               return_date varchar,
+                               staff_id int,
+                               last_update varchar
+                              );
+                              
+ create or replace stream rental_stream on table raw_table;
+ 
+ 
+ create or replace task rental_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('rental_stream')
+as
+merge into rental tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:rental_id::int as rental_id,
+                                  load_data:rental_date::varchar as rental_date,
+                                  load_data:inventory_id::int as inventory_id,
+                                  load_data:customer_id::int as customer_id,
+                                  load_data:return_date::varchar as return_date,
+                                  load_data:staff_id::int as staff_id,
+                                  load_data:last_update::varchar as last_update
+                                  from rental_stream where file_name like '%Rental_%') src  
+                                  on src.rental_id=tgt.rental_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.rental_date=src.rental_date,
+                                  tgt.inventory_id=src.inventory_id,
+                                  tgt.customer_id=src.customer_id,
+                                  tgt.return_date=src.return_date,
+                                  tgt.staff_id=src.staff_id,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+   (tgt.rental_id,tgt.rental_date,tgt.inventory_id,tgt.customer_id,tgt.return_date,tgt.staff_id,tgt.last_update)
+   values
+   (src.rental_id,src.rental_date,src.inventory_id,src.customer_id,src.return_date,src.staff_id,src.last_update);
+   
+   
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task rental_task;
+alter task rental_task resume;
+alter task rental_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from rental;
+
+select * from rental_stream;

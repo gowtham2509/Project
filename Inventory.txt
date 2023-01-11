@@ -1,0 +1,50 @@
+create or replace table inventory(inventory_id int,
+                                  film_id int,
+                                  store_id int,
+                                  last_update varchar
+                                 );
+                                 
+create or replace stream inventory_stream on table raw_table;
+
+
+create or replace task inventory_task    
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('inventory_stream')
+as
+merge into inventory tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:inventory_id::int as inventory_id,
+                                  load_data:film_id::int as film_id,
+                                  load_data:store_id::int as store_id,
+                                  load_data:last_update::varchar as last_update
+                                  from inventory_stream where file_name like '%Inventory_%') src 
+                                  on src.inventory_id=tgt.inventory_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.film_id=src.film_id,
+                                  tgt.store_id=src.store_id,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.inventory_id,tgt.film_id,tgt.store_id,tgt.last_update)
+           values
+           (src.inventory_id,src.film_id,src.store_id,src.last_update);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task inventory_task;
+alter task inventory_task resume;
+alter task inventory_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from inventory;
+
+select * from inventory_stream;

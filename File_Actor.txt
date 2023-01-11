@@ -1,0 +1,47 @@
+create or replace table film_actor(actor_id int,
+                                   film_id int,
+                                   last_update varchar
+                                  );
+                                  
+create or replace stream film_actor_stream on table raw_table;
+
+
+create or replace task film_actor_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('film_actor_stream')
+as
+merge into film_actor tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:actor_id::int as actor_id,
+                                  load_data:film_id::int as film_id,
+                                  load_data:last_update::varchar as last_update
+                                  from film_actor_stream where file_name like '%Film_actor_%') src 
+                                  on src.actor_id=tgt.actor_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.film_id=src.film_id,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.actor_id,tgt.film_id,tgt.last_update)
+           values
+           (src.actor_id,src.film_id,src.last_update);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task film_actor_task;
+alter task film_actor_task resume;
+alter task film_actor_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from film_actor;
+
+select * from film_actor_stream;

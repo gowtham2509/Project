@@ -1,0 +1,47 @@
+create or replace table country(country_id int,
+                                country varchar,
+                                last_update varchar
+                                );
+                                
+create or replace stream country_stream on table raw_table;
+
+
+create or replace task country_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('country_stream')
+as
+merge into country tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:country_id::int as country_id,
+                                  load_data:country::varchar as country,
+                                  load_data:last_update::varchar as last_update
+                                  from country_stream where file_name like '%Country_%') src  
+                                  on src.country_id=tgt.country_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.country=src.country,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.country_id,tgt.country,tgt.last_update)
+           values
+           (src.country_id,src.country,src.last_update);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task country_task;
+alter task country_task resume;
+alter task country_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from country;
+
+select * from country_stream;

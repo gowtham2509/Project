@@ -1,0 +1,50 @@
+create or replace table store(store_id int,
+                              manager_staff_id int,
+                              address_id int,
+                              last_update varchar
+                             );
+                             
+create or replace stream store_stream on table raw_table;
+
+
+create or replace task store_task    
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('store_stream')
+as
+merge into store tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:store_id::int as store_id,
+                                  load_data:manager_staff_id::int as manager_staff_id,
+                                  load_data:address_id::int as address_id,
+                                  load_data:last_update::varchar as last_update
+                                  from store_stream where file_name like '%store_%') src 
+                                  on src.store_id=tgt.store_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.manager_staff_id=src.manager_staff_id,
+                                  tgt.address_id=src.address_id,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.store_id,tgt.manager_staff_id,tgt.address_id,tgt.last_update)
+           values
+           (src.store_id,src.manager_staff_id,src.address_id,src.last_update);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task store_task;
+alter task store_task resume;
+alter task store_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from store;
+
+select * from store_stream;

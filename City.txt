@@ -1,0 +1,50 @@
+create or replace table city(city_id int,
+                             city varchar,
+                             country_id int,
+                             last_update varchar
+                            );
+                            
+create or replace stream city_stream on table raw_table;
+
+
+create or replace task city_task    
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('city_stream')
+as
+merge into city tgt using(select metadata$action,metadata$isupdate,
+                                  load_data:city_id::int as city_id,
+                                  load_data:city::varchar as city,
+                                  load_data:country_id::int as country_id,
+                                  load_data:last_update::varchar as last_update
+                                  from city_stream where file_name like '%City_%') src  
+                                  on src.city_id=tgt.city_id
+                                  when matched and src.metadata$action='DELETE' then delete
+                                  when matched and src.metadata$action='INSERT' and src.metadata$isupdate='FALSE'
+                                  then update set
+                                  tgt.city=src.city,
+                                  tgt.country_id=src.country_id,
+                                  tgt.last_update=src.last_update
+                                  when not matched  
+                                  then insert
+           (tgt.city_id,tgt.city,tgt.country_id,tgt.last_update)
+           values
+           (src.city_id,src.city,src.country_id,src.last_update);
+           
+           
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task city_task;
+alter task city_task resume;
+alter task city_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from city;
+
+select * from city_stream;
