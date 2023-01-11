@@ -1,0 +1,93 @@
+create or replace table address(address_id int,
+                                address varchar,
+                                address2 varchar,
+                                district varchar,
+                                city_id int,
+                                postal_code varchar,
+                                phone varchar,
+                                location_type varchar,
+                                location_coordinates_1 double,
+                                location_coordinates_2 double,
+                                last_update varchar
+                               );
+                                      
+create or replace stream address_stream on table raw_table;
+
+
+create or replace task address_task
+warehouse='PROJECT'
+schedule='1 minute'
+allow_overlapping_execution=false
+suspend_task_after_num_failures=1
+when system$stream_has_data('address_stream')
+as   
+merge into address tgt using(select metadata$action,metadata$isupdate,
+                             load_data:address_id::int as address_id ,
+                             load_data:address::varchar as address,
+                             load_data:address2::varchar as address2,
+                             load_data:district::varchar as district,
+                             load_data:city_id::int as city_id,
+                             load_data:postal_code::varchar as postal_code,
+                             load_data:phone::varchar as phone,
+                             load_data:location.type::varchar as location_type,
+                             load_data:location.coordinates[0]::double as location_coordinates_1,
+                             load_data:location.coordinates[1]::double as location_coordinates_2,
+                             load_data:last_update::varchar as last_update
+                             from address_stream where file_name like '%Address_%') src
+                             on src.address_id=tgt.address_id
+                             when matched and metadata$action='DELETE' then delete
+                             when matched and metadata$action='INSERT' and metadata$isupdate='FALSE'
+                             then update set 
+                             tgt.address=src.address,
+                             tgt.address2=src.address2,
+                             tgt.district=src.district,
+                             tgt.city_id=src.city_id,
+                             tgt.postal_code=src.postal_code,
+                             tgt.phone=src.phone,
+                             tgt.location_type=src.location_type,
+                             tgt.location_coordinates_1=src.location_coordinates_1,
+                             tgt.location_coordinates_2=src.location_coordinates_2,
+                             tgt.last_update=src.last_update
+                             when not matched 
+                             then insert
+(tgt.address_id,tgt.address,tgt.address2,tgt.district,tgt.city_id,tgt.postal_code,tgt.phone,tgt.location_type,tgt.location_coordinates_1,
+tgt.location_coordinates_2,tgt.last_update)
+values
+(src.address_id,src.address,src.address2,src.district,src.city_id,src.postal_code,src.phone,src.location_type,src.location_coordinates_1,
+ src.location_coordinates_2,src.last_update);
+
+
+select system$pipe_status('project_pipe');
+alter pipe project_pipe refresh;
+
+describe task address_task;
+alter task address_task resume;
+alter task address_task suspend;
+
+select * from table (information_schema.task_history());
+
+select * from raw_table;
+
+select * from address;
+
+select * from address_stream;
+
+
+truncate table address;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
