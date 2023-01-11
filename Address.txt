@@ -73,7 +73,7 @@ select * from address;
 select * from address_stream;
 
 
-truncate table address;
+
 
 
 
